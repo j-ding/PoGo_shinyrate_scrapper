@@ -7,11 +7,11 @@ import time
 
 # Set up Chrome options
 chrome_options = Options()
-chrome_options.binary_location = r"PATH OF BROWSWER.EXE"  # Update this path if necessary
+chrome_options.binary_location = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"  # Update this path if necessary
 chrome_options.add_argument("--headless")  # Optional: run in headless mode
 
 # Set up the WebDriver
-service = Service(r'PATH TO CHROMEDRIVER.EXE') #ChromeDriver location
+service = Service(r'C:\Users\Ding\Documents\chromedriver-win64\chromedriver.exe')
 
 # Create a new instance of the Chrome driver
 driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -34,24 +34,31 @@ data = []
 
 # Extract data from each row
 for row in rows:
-    cols = row.find_elements(By.TAG_NAME, 'td'
+    cols = row.find_elements(By.TAG_NAME, 'td')
+    print(f"Columns found in row: {len(cols)}")  # Debugging: print number of columns in each row
     if len(cols) < 4:  # Adjusted to check for 4 columns
+        print("Skipping row due to insufficient columns.")  # Debugging
         continue
     
     # Extracting data
     ids  = cols[0].text.strip() 
-    name = cols[1].text.strip()  
-    shiny_rate = cols[2].text.strip()  
-    sample_size = cols[3].text.strip()  
+    name = cols[1].text.strip()  # Adjusted index based on actual column structure
+    shiny_rate = cols[2].text.strip().replace(',', '')  # Remove commas
+    sample_size = cols[3].text.strip().replace(',', '')  # Remove commas
     
-    print(f"Extracted Data - ID: {ids}, Name: {name}, Shiny Rate: {shiny_rate}, Sample Size: {sample_size}")
+    if '/' in shiny_rate:
+        shiny_rate = "'" + shiny_rate
+    if '/' in sample_size:
+        sample_size = "'" + sample_size
+    
+    print(f"Extracted Data - ID: {ids}, Name: {name}, Shiny Rate: {shiny_rate}, Sample Size: {sample_size}")  # Debugging
     data.append([ids, name, shiny_rate, sample_size])
 
 # Save data to CSV
 csv_filename = "shiny_rates.csv"
 with open(csv_filename, "w", newline="", encoding="utf-8") as file:
     writer = csv.writer(file)
-    writer.writerow(["ID", "Name", "Shiny Rate", "Sample Size"])
+    writer.writerow(["ID","Name", "Shiny Rate", "Sample Size"])
     writer.writerows(data)
 
 print(f"Data saved to {csv_filename}")
