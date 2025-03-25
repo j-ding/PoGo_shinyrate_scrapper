@@ -1,67 +1,93 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
+# Simple version with minimal dependencies
+from playwright.sync_api import sync_playwright
 import csv
-import time
+import re
+import os
+import datetime
 
-# Set up Chrome options
-chrome_options = Options()
-chrome_options.binary_location = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"  # Update this path if necessary
-chrome_options.add_argument("--headless")  # Optional: run in headless mode
-
-# Set up the WebDriver
-service = Service(r'C:\Users\Ding\Documents\chromedriver-win64\chromedriver.exe')
-
-# Create a new instance of the Chrome driver
-driver = webdriver.Chrome(service=service, options=chrome_options)
-
-# URL of the website to scrape
-URL = "https://shinyrates.com/"
-driver.get(URL)
-
-# Wait for the page to load
-time.sleep(5)  # Adjust the sleep time as necessary
-
-# Find the table body
-tbody = driver.find_element(By.ID, 'table_body')
-
-# Extract rows from the table body
-rows = tbody.find_elements(By.TAG_NAME, 'tr')
-print(f"Number of rows found: {len(rows)}")
-
-data = []
-
-# Extract data from each row
-for row in rows:
-    cols = row.find_elements(By.TAG_NAME, 'td')
-    print(f"Columns found in row: {len(cols)}")  # Debugging: print number of columns in each row
-    if len(cols) < 4:  # Adjusted to check for 4 columns
-        print("Skipping row due to insufficient columns.")  # Debugging
-        continue
+def run_simple_scraper():
+    # Create data directory if it doesn't exist
+    output_dir = "data"
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Extracting data
-    ids  = cols[0].text.strip() 
-    name = cols[1].text.strip()  # Adjusted index based on actual column structure
-    shiny_rate = cols[2].text.strip().replace(',', '')  # Remove commas
-    sample_size = cols[3].text.strip().replace(',', '')  # Remove commas
+    print("Starting shiny rate scraper...")
     
-    if '/' in shiny_rate:
-        shiny_rate = "'" + shiny_rate
-    if '/' in sample_size:
-        sample_size = "'" + sample_size
-    
-    print(f"Extracted Data - ID: {ids}, Name: {name}, Shiny Rate: {shiny_rate}, Sample Size: {sample_size}")  # Debugging
-    data.append([ids, name, shiny_rate, sample_size])
+    with sync_playwright() as p:
+        # Launch browser
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        
+        # Go to the website
+        print("Loading shinyrates.com...")
+        page.goto("https://shinyrates.com/", timeout=30000)
+        page.wait_for_load_state("networkidle")
+        
+        # Get all table rows (skip header)
+        print("Finding Pokemon data...")
+        rows = page.query_selector_all("tr")
+        
+        data = []
+        for row in rows[1:]:  # Skip header row
+            try:
+                # Get all cells in this row
+                cells = row.query_selector_all("td")
+                
+                # Check if we have enough cells
+                if len(cells) < 4:
+                    continue
+                
+                # Extract data from cells
+                pokemon_id = cells[0].inner_text().strip()
+                pokemon_name = cells[1].inner_text().strip()
+                shiny_rate = cells[2].inner_text().strip()
+                sample_size = cells[3].inner_text().strip() if len(cells) > 3 else ""
+                
+                # Calculate percentage for sorting
+                rate_value = 0.0
+                if "/" in shiny_rate:
+                    parts = shiny_rate.split("/")
+                    if len(parts) == 2 and parts[1].isdigit():
+                        rate_value = float(parts[0]) / float(parts[1])
+                
+                # Format rate percentage
+                rate_percent = f"{rate_value * 100:.4f}%"
+                
+                # Add quotes to fractions for CSV
+                if "/" in shiny_rate:
+                    shiny_rate = "'" + shiny_rate
+                
+                print(f"Found: {pokemon_name} - {shiny_rate}")
+                data.append([pokemon_id, pokemon_name, shiny_rate, rate_percent, sample_size, rate_value])
+            except Exception as e:
+                print(f"Error processing row: {str(e)}")
+        
+        browser.close()
+        
+        # Sort data by shiny rate value (largest first)
+        print(f"Sorting {len(data)} Pokemon by shiny rate...")
+        sorted_data = sorted(data, key=lambda x: x[5], reverse=True)
+        
+        # Remove sorting column
+        sorted_data = [row[:5] for row in sorted_data]
+        
+        # Save to CSV files
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = os.path.join(output_dir, f"shiny_rates_{timestamp}.csv")
+        latest_filename = os.path.join(output_dir, "shiny_rates_latest.csv")
+        
+        # Write timestamped file
+        with open(csv_filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Name", "Shiny Rate", "Shiny Rate Percent", "Sample Size"])
+            writer.writerows(sorted_data)
+        
+        # Write latest file
+        with open(latest_filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["ID", "Name", "Shiny Rate", "Shiny Rate Percent", "Sample Size"])
+            writer.writerows(sorted_data)
+        
+        print(f"Data saved to {csv_filename} and {latest_filename}")
 
-# Save data to CSV
-csv_filename = "shiny_rates.csv"
-with open(csv_filename, "w", newline="", encoding="utf-8") as file:
-    writer = csv.writer(file)
-    writer.writerow(["ID","Name", "Shiny Rate", "Sample Size"])
-    writer.writerows(data)
-
-print(f"Data saved to {csv_filename}")
-
-# Close the driver
-driver.quit()
+if __name__ == "__main__":
+    run_simple_scraper()
